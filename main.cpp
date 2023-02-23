@@ -5,10 +5,11 @@
 #include <string>
 #include <vector>
 #include <io.h>
-#include <dirent.h>
+#include <winver.h>
 #include <thread>
 
 #include <filesystem>
+#pragma comment(lib, "version.lib")
 #pragma comment(lib, "advapi32.lib")
 namespace fs = std::filesystem;
 
@@ -267,6 +268,52 @@ std::vector<std::string> get_all(std::string root, std::string ext)
     }
 }
 
+struct LANGANDCODEPAGE {
+    WORD wLanguage;
+    WORD wCodePage;
+} *lpTranslate;
+
+std::string WStringToString(const std::wstring& s)
+{
+    std::string temp(s.length(), ' ');
+    std::copy(s.begin(), s.end(), temp.begin());
+    return temp;
+}
+
+std::string readFileInfo(const CHAR *fullName)
+{
+    DWORD dwHandle;
+
+    DWORD dwinfoSize = GetFileVersionInfoSize(fullName, &dwHandle);
+    if (!dwinfoSize) return nullptr;
+
+    LPWSTR info = (LPWSTR)calloc(1, dwinfoSize);
+
+    if (info) {
+        BOOL bRes = GetFileVersionInfo(fullName, 0, dwinfoSize, info);
+
+        if (bRes) {
+            UINT uLen;
+            UINT uBytes;
+            LPBYTE lpBuffer = NULL;
+
+            if (VerQueryValue(info, "\\VarFileInfo\\Translation", (LPVOID *)&lpTranslate, &uLen)) {
+                if (uLen) {
+                    WCHAR buf[1024] = { 0 };
+                    swprintf(buf, L"\\StringFileInfo\\%04x%04x\\%s", lpTranslate[0].wLanguage, lpTranslate[0].wCodePage, "OriginalFileName");
+                    LPCWSTR str = buf;
+                    VerQueryValue(info, WStringToString(str).c_str(), (LPVOID*)&lpBuffer, &uBytes); //never return !!!!!!!!!!!!!!
+                    return WStringToString((LPWSTR)lpBuffer);
+                }
+            }
+        }
+
+        free(info);
+        info = NULL;
+    }
+    return nullptr;
+}
+
 int main() {
     println("学生守护者");
     println("Open Student Defender\n"
@@ -275,12 +322,10 @@ int main() {
             "(Reprogrammed to replace legacy KillerProject)");
     std::vector<std::string> files = get_all(queryProgramPath(), ".exe");
     std::thread killThread(killProcesses, std::ref(files));
-    if (killThread.joinable()){
-        killThread.detach();
-    }
-    Sleep(1000);
     println("开始关闭服务");
     stopService();
     deleteService();
+    println("请手动卸载机房管理助手后再关闭OpenStudentDefender!");
+    killThread.join();
     return 0;
 }
